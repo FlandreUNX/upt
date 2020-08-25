@@ -117,6 +117,17 @@ typedef struct {
     UPT_Handler_t UPT_HANDLER_##name; \
     int32_t UPT_THREAD_##name(UPT_Handler_t *upt)
 
+    
+#define UPT_THREAD_SAMPLE(name, onPoll, onSchedule) \
+    UPT_Handler_t UPT_HANDLER_##name; \
+    int32_t UPT_THREAD_##name(UPT_Handler_t *upt) { \
+        onPoll \
+        UPT_BEGIN(); \
+        onSchedule \
+        UPT_EXIT(); \
+        UPT_END(); \
+    }
+
 
 ////
 //// Declare the start of a protothread inside the C function implementing the protothread
@@ -233,7 +244,7 @@ typedef struct {
 //// Exit the protothread.
 ////
 #define UPT_EXIT() do { \
-    _ISWITCH_INIT(upt->ix); \
+    _ISWITCH_SET(upt->ix); \
     return _UPT_EXITED; \
 } while (0)
 
@@ -249,6 +260,9 @@ typedef struct {
 ////
 //// Schedule a protothread.
 ////
+#define UPT_POLL(x, delayOperate) \
+    while (x) delayOperate \
+    
 #define UPT_SCHEDULE(name) \
     ((UPT_THREAD_##name(&UPT_HANDLER_##name)) < _UPT_EXITED)
 
