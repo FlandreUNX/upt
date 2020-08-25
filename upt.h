@@ -96,17 +96,17 @@ typedef struct {
 //// Extern handler
 ////
 #define UPT_EXTERN(name) \
-    extern UPT_Handler_t UPT_HANDLER_##name; \
-    extern UPT_THREAD_##name(UPT_Handler_t *upt);
+    extern UPT_Handler_t gUPTHandler_##name; \
+    extern _UPTThreadFunc_##name(UPT_Handler_t *upt);
 
 ////
 //// Initialize a protothread
 ////
 #define UPT_INIT(name) do { \
-    extern UPT_Handler_t UPT_HANDLER_##name; \
-    _ISWITCH_INIT((&(UPT_HANDLER_##name))->ix); \
-    (&(UPT_HANDLER_##name))->timeout = 0; \
-    (&(UPT_HANDLER_##name))->delayState = _UPT_DELAY_STATE_READY; \
+    extern UPT_Handler_t gUPTHandler_##name; \
+    _ISWITCH_INIT((&(gUPTHandler_##name))->ix); \
+    (&(gUPTHandler_##name))->timeout = 0; \
+    (&(gUPTHandler_##name))->delayState = _UPT_DELAY_STATE_READY; \
 } while (0)
 
 
@@ -114,13 +114,13 @@ typedef struct {
 //// Declaration and definition
 ////
 #define UPT_THREAD(name) \
-    UPT_Handler_t UPT_HANDLER_##name; \
-    int32_t UPT_THREAD_##name(UPT_Handler_t *upt)
+    UPT_Handler_t gUPTHandler_##name; \
+    int32_t _UPTThreadFunc_##name(UPT_Handler_t *upt)
 
     
 #define UPT_THREAD_SAMPLE(name, onPoll, onSchedule, onExit) \
-    UPT_Handler_t UPT_HANDLER_##name; \
-    int32_t UPT_THREAD_##name(UPT_Handler_t *upt) { \
+    UPT_Handler_t gUPTHandler_##name; \
+    int32_t _UPTThreadFunc_##name(UPT_Handler_t *upt) { \
         onPoll \
         UPT_BEGIN(); \
         onSchedule \
@@ -213,8 +213,8 @@ typedef struct {
 //// Spawn a child protothread and wait until it exits.
 ////
 #define UPT_SPAWN(nameChild, thread) do { \
-    extern UPT_Handler_t UPT_HANDLER_##nameChild; \
-    _ISWITCH_INIT(UPT_HANDLER_##nameChild.ix); \
+    extern UPT_Handler_t gUPTHandler_##nameChild; \
+    _ISWITCH_INIT(gUPTHandler_##nameChild.ix); \
     UPT_WAIT_THREAD((thread)); \
 } while (0)
 
@@ -231,8 +231,10 @@ typedef struct {
 //// Restart the protothread.
 ////
 #define UPT_RESTART(name) do { \
-    extern UPT_Handler_t UPT_HANDLER_##name; \
-    _ISWITCH_INIT(UPT_HANDLER_##name.ix); \
+    extern UPT_Handler_t gUPTHandler_##name; \
+    _ISWITCH_INIT((&(gUPTHandler_##name))->ix); \
+    (&(gUPTHandler_##name))->timeout = 0; \
+    (&(gUPTHandler_##name))->delayState = _UPT_DELAY_STATE_READY; \
     return _UPT_WAITING; \
 } while (0)
 
@@ -261,7 +263,7 @@ typedef struct {
     while (x) delayOperate \
     
 #define UPT_SCHEDULE(name) \
-    ((UPT_THREAD_##name(&UPT_HANDLER_##name)) < _UPT_EXITED)
+    ((_UPTThreadFunc_##name(&gUPTHandler_##name)) < _UPT_EXITED)
 
 /*@}*/
 
