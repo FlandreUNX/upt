@@ -68,14 +68,20 @@
 typedef struct UPT {
     uint16_t ix;
     uint8_t delayState;
-    int32_t timeout;
-} UPT_t;
+    uint32_t timeout;
+} UPT_Handler_t;
 
 typedef struct {
     uint8_t count;
-} UPT_Sem_t;
+} UPT_Semaphore_t;
 
-typedef volatile uint32_t UPT_Flag_t;
+typedef struct {
+    uint8_t count;
+} UPT_MessageBox_t;
+
+typedef struct {
+    volatile uint32_t flag;
+} UPT_EventFlag_t;
 
 /*@}*/
 
@@ -90,14 +96,14 @@ typedef volatile uint32_t UPT_Flag_t;
 //// Extern handler
 ////
 #define UPT_EXTERN(name) \
-    extern UPT_t UPT_HANDLER_##name; \
-    extern UPT_THREAD_##name(UPT_t *upt);
+    extern UPT_Handler_t UPT_HANDLER_##name; \
+    extern UPT_THREAD_##name(UPT_Handler_t *upt);
 
 ////
 //// Initialize a protothread
 ////
 #define UPT_INIT(name) do { \
-    extern UPT_t UPT_HANDLER_##name; \
+    extern UPT_Handler_t UPT_HANDLER_##name; \
     _ISWITCH_INIT((&(UPT_HANDLER_##name))->ix); \
     (&(UPT_HANDLER_##name))->timeout = 0; \
     (&(UPT_HANDLER_##name))->delayState = _UPT_DELAY_STATE_READY; \
@@ -108,8 +114,8 @@ typedef volatile uint32_t UPT_Flag_t;
 //// Declaration and definition
 ////
 #define UPT_THREAD(name) \
-    UPT_t UPT_HANDLER_##name; \
-    int32_t UPT_THREAD_##name(UPT_t *upt)
+    UPT_Handler_t UPT_HANDLER_##name; \
+    int32_t UPT_THREAD_##name(UPT_Handler_t *upt)
 
 
 ////
@@ -171,9 +177,11 @@ typedef volatile uint32_t UPT_Flag_t;
             upt->timeout = 0; \
         } \
     } else { \
-        upt->delayState = _UPT_DELAY_STATE_RUNNING; \
-        upt->timeout = _timeout; \
-        return _UPT_WAITING; \
+        if (_timeout != 0) { \
+            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
+            upt->timeout = _timeout; \
+            return _UPT_WAITING; \
+        } \
     } \
 } while (0)
 
@@ -197,7 +205,7 @@ typedef volatile uint32_t UPT_Flag_t;
 //// Spawn a child protothread and wait until it exits.
 ////
 #define UPT_SPAWN(nameChild, thread) do { \
-    extern UPT_t UPT_HANDLER_##nameChild; \
+    extern UPT_Handler_t UPT_HANDLER_##nameChild; \
     _ISWITCH_INIT(UPT_HANDLER_##nameChild.ix); \
     UPT_WAIT_THREAD((thread)); \
 } while (0)
@@ -215,7 +223,7 @@ typedef volatile uint32_t UPT_Flag_t;
 //// Restart the protothread.
 ////
 #define UPT_RESTART(name) do { \
-    extern UPT_t UPT_HANDLER_##name; \
+    extern UPT_Handler_t UPT_HANDLER_##name; \
     _ISWITCH_INIT(UPT_HANDLER_##name.ix); \
     return _UPT_WAITING; \
 } while (0)
@@ -314,9 +322,11 @@ typedef volatile uint32_t UPT_Flag_t;
         if (((s)->count == 0) { \
             *result = 0; \
         } else { \
-            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
-            upt->timeout = delay; \
-            return _UPT_WAITING; \
+            if (delay != 0) { \
+                upt->delayState = _UPT_DELAY_STATE_RUNNING; \
+                upt->timeout = delay; \
+                return _UPT_WAITING; \
+            } \
         } \
     } \
 } while (0)
@@ -343,7 +353,7 @@ typedef volatile uint32_t UPT_Flag_t;
 /*@}*/
 
 /**
- * @addtogroup Flag functions
+ * @addtogroup Event flag functions
  * @note none
  */
  
@@ -353,7 +363,7 @@ typedef volatile uint32_t UPT_Flag_t;
 //// Initialize a flag
 ////
 #define UPT_FLAG_INIT(f) do { \
-    (*f) = 0; \
+    (f)->flag = 0; \
 } while (0)
 
 
@@ -363,11 +373,11 @@ typedef volatile uint32_t UPT_Flag_t;
 #define UPT_FLAG_WAIT_ANY(f, mark, noClear, delay, result) do { \
     _ISWITCH_SET(upt->ix); \
     if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
-        if ((--upt->timeout > 0) && (((*f) & mark) == 0)) { \
+        if ((--upt->timeout > 0) && (((f)->flag & mark) == 0)) { \
             return _UPT_WAITING; \
         } else { \
-            if (((*f) & mark) != 0) { \
-                *result = (*f) & mark; \
+            if (((f)->flag & mark) != 0) { \
+                *result = (f)->flag & mark; \
                 if (!noClear) { \
                     UPT_FLAG_CLEAR(f, mark); \
                 } \
@@ -378,15 +388,17 @@ typedef volatile uint32_t UPT_Flag_t;
             upt->timeout = 0; \
         } \
     } else { \
-        if (((*f) & mark) != 0) { \
-            *result = (*f) & mark; \
+        if (((f)->flag & mark) != 0) { \
+            *result = (f)->flag & mark; \
             if (!noClear) { \
                 UPT_FLAG_CLEAR(f, mark); \
             } \
         } else { \
-            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
-            upt->timeout = delay; \
-            return _UPT_WAITING; \
+            if (delay != 0) { \
+                upt->delayState = _UPT_DELAY_STATE_RUNNING; \
+                upt->timeout = delay; \
+                return _UPT_WAITING; \
+            } \
         } \
     } \
 } while (0)
@@ -398,11 +410,11 @@ typedef volatile uint32_t UPT_Flag_t;
 #define UPT_FLAG_WAIT_ALL(f, mark, noClear, delay, result) do { \
     _ISWITCH_SET(upt->ix); \
     if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
-        if ((--upt->timeout > 0) && (((*f) & mark) != mark)) { \
+        if ((--upt->timeout > 0) && (((f)->flag & mark) != mark)) { \
             return _UPT_WAITING; \
         } else { \
             *result = 0; \
-            if (((*f) & mark) == mark) { \
+            if (((f)->flag & mark) == mark) { \
                 *result = mark; \
                 if (!noClear) { \
                     UPT_FLAG_CLEAR(f, mark); \
@@ -414,15 +426,17 @@ typedef volatile uint32_t UPT_Flag_t;
             upt->timeout = 0; \
         } \
     } else { \
-        if (((*f) & mark) == mark) { \
+        if (((f)->flag & mark) == mark) { \
             *result = mark; \
             if (!noClear) { \
                 UPT_FLAG_CLEAR(f, mark); \
             } \
         } else { \
-            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
-            upt->timeout = delay; \
-            return _UPT_WAITING; \
+            if (delay != 0) { \
+                upt->delayState = _UPT_DELAY_STATE_RUNNING; \
+                upt->timeout = delay; \
+                return _UPT_WAITING; \
+            } \
         } \
     } \
 } while (0)
@@ -431,7 +445,7 @@ typedef volatile uint32_t UPT_Flag_t;
 //// Set a flag
 ////
 #define UPT_FLAG_SET(f, mark) do { \
-    (*f) |= mark; \
+    (f)->flag |= mark; \
 } while (0)
     
 
@@ -439,8 +453,17 @@ typedef volatile uint32_t UPT_Flag_t;
 //// Clear a flag
 ////
 #define UPT_FLAG_CLEAR(f, mark) do { \
-    (*f) &= ~mark; \
+    (f)->flag &= ~mark; \
 } while (0)
+
+/*@}*/
+
+/**
+ * @addtogroup Message functions
+ * @note none
+ */
+ 
+/*@{*/
 
 /*@}*/
 
