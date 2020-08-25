@@ -30,14 +30,18 @@
  
 /*@{*/
 
-#define _UPT_MAJOR_VERSION        "1"
-#define _UPT_SECONDARY_VERSION    "0"
+#define _UPT_MAJOR_VERSION        "A"
+#define _UPT_SECONDARY_VERSION    "02"
 #define UPT_VERSION                _UPT_MAJOR_VERSION "." _UPT_SECONDARY_VERSION
 
 #define _UPT_WAITING         0
 #define _UPT_YIELDED         1
 #define _UPT_EXITED          2
 #define _UPT_ENDED           3
+
+#define _UPT_DELAY_STATE_READY     0
+#define _UPT_DELAY_STATE_RUNNING   1
+
 
 #define _ISWITCH_INIT(s) \
     s = 0;
@@ -61,16 +65,9 @@
  
 /*@{*/
 
-typedef uint16_t UPT_Ix_t;
-    
-typedef enum {
-    UPT_DELAT_STATE_RUNNING,
-    UPT_DELAT_STATE_READY,
-} UPT_DelayState_t;
-    
 typedef struct UPT {
-    UPT_Ix_t ix;
-    UPT_DelayState_t delayState;
+    uint16_t ix;
+    uint8_t delayState;
     int32_t timeout;
 } UPT_t;
 
@@ -103,7 +100,7 @@ typedef volatile uint32_t UPT_Flag_t;
     extern UPT_t UPT_HANDLER_##name; \
     _ISWITCH_INIT((&(UPT_HANDLER_##name))->ix); \
     (&(UPT_HANDLER_##name))->timeout = 0; \
-    (&(UPT_HANDLER_##name))->delayState = UPT_DELAT_STATE_READY; \
+    (&(UPT_HANDLER_##name))->delayState = _UPT_DELAY_STATE_READY; \
 } while (0)
 
 
@@ -131,7 +128,7 @@ typedef volatile uint32_t UPT_Flag_t;
     _uptYieldFlag = 0; \
     _ISWITCH_INIT((upt)->ix); \
     (upt)->timeout = 0; \
-    (upt)->delayState = UPT_DELAT_STATE_READY; \
+    (upt)->delayState = _UPT_DELAY_STATE_READY; \
     return _UPT_ENDED; \
 }
 
@@ -166,15 +163,15 @@ typedef volatile uint32_t UPT_Flag_t;
 ////
 #define UPT_DELAY(_timeout) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == UPT_DELAT_STATE_RUNNING) { \
+    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if (--upt->timeout > 0) { \
             return _UPT_WAITING; \
         } else { \
-            upt->delayState = UPT_DELAT_STATE_READY; \
+            upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
         } \
     } else { \
-        upt->delayState = UPT_DELAT_STATE_RUNNING; \
+        upt->delayState = _UPT_DELAY_STATE_RUNNING; \
         upt->timeout = _timeout; \
         return _UPT_WAITING; \
     } \
@@ -301,7 +298,7 @@ typedef volatile uint32_t UPT_Flag_t;
 ////
 #define UPT_SEM_WAIT(s, delay, result) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == UPT_DELAT_STATE_RUNNING) { \
+    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if ((--upt->timeout > 0) && ((s)->count > 0)) { \
             return _UPT_WAITING; \
         } else { \
@@ -310,14 +307,14 @@ typedef volatile uint32_t UPT_Flag_t;
             } else if (upt->timeout <= 0) { \
                 *result = -1; \
             } \
-            upt->delayState = UPT_DELAT_STATE_READY; \
+            upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
         } \
     } else { \
         if (((s)->count == 0) { \
             *result = 0; \
         } else { \
-            upt->delayState = UPT_DELAT_STATE_RUNNING; \
+            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
             upt->timeout = delay; \
             return _UPT_WAITING; \
         } \
@@ -365,7 +362,7 @@ typedef volatile uint32_t UPT_Flag_t;
 ////
 #define UPT_FLAG_WAIT_ANY(f, mark, noClear, delay, result) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == UPT_DELAT_STATE_RUNNING) { \
+    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if ((--upt->timeout > 0) && (((*f) & mark) == 0)) { \
             return _UPT_WAITING; \
         } else { \
@@ -377,7 +374,7 @@ typedef volatile uint32_t UPT_Flag_t;
             } else if (upt->timeout <= 0) { \
                 *result = -1; \
             } \
-            upt->delayState = UPT_DELAT_STATE_READY; \
+            upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
         } \
     } else { \
@@ -387,7 +384,7 @@ typedef volatile uint32_t UPT_Flag_t;
                 UPT_FLAG_CLEAR(f, mark); \
             } \
         } else { \
-            upt->delayState = UPT_DELAT_STATE_RUNNING; \
+            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
             upt->timeout = delay; \
             return _UPT_WAITING; \
         } \
@@ -400,7 +397,7 @@ typedef volatile uint32_t UPT_Flag_t;
 ////
 #define UPT_FLAG_WAIT_ALL(f, mark, noClear, delay, result) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == UPT_DELAT_STATE_RUNNING) { \
+    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if ((--upt->timeout > 0) && (((*f) & mark) != mark)) { \
             return _UPT_WAITING; \
         } else { \
@@ -413,7 +410,7 @@ typedef volatile uint32_t UPT_Flag_t;
             } else if (upt->timeout <= 0) { \
                 *result = -1; \
             } \
-            upt->delayState = UPT_DELAT_STATE_READY; \
+            upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
         } \
     } else { \
@@ -423,7 +420,7 @@ typedef volatile uint32_t UPT_Flag_t;
                 UPT_FLAG_CLEAR(f, mark); \
             } \
         } else { \
-            upt->delayState = UPT_DELAT_STATE_RUNNING; \
+            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
             upt->timeout = delay; \
             return _UPT_WAITING; \
         } \
