@@ -118,12 +118,13 @@ typedef struct {
     int32_t UPT_THREAD_##name(UPT_Handler_t *upt)
 
     
-#define UPT_THREAD_SAMPLE(name, onPoll, onSchedule) \
+#define UPT_THREAD_SAMPLE(name, onPoll, onSchedule, onExit) \
     UPT_Handler_t UPT_HANDLER_##name; \
     int32_t UPT_THREAD_##name(UPT_Handler_t *upt) { \
         onPoll \
         UPT_BEGIN(); \
         onSchedule \
+        onExit \
         UPT_EXIT(); \
         UPT_END(); \
     }
@@ -142,10 +143,6 @@ typedef struct {
 ////
 #define UPT_END() \
     _ISWITCH_END((upt)->ix); \
-    _uptYieldFlag = 0; \
-    _ISWITCH_INIT((upt)->ix); \
-    (upt)->timeout = 0; \
-    (upt)->delayState = _UPT_DELAY_STATE_READY; \
     return _UPT_ENDED; \
 }
 
