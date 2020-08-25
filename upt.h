@@ -34,10 +34,14 @@
 #define _UPT_SECONDARY_VERSION    "02"
 #define UPT_VERSION                _UPT_MAJOR_VERSION "." _UPT_SECONDARY_VERSION
 
-#define _UPT_WAITING         0
-#define _UPT_YIELDED         1
-#define _UPT_EXITED          2
-#define _UPT_ENDED           3
+#define _UPT_DELAY_COUNT_TYPE         uint32_t
+#define _UPT_SEMAPHORE_COUNT_TYPE     uint8_t
+#define _UPT_FLAG_INDEX_TYPE          uint32_t
+
+#define _UPT_RETURN_WAITING         0
+#define _UPT_RETURN_YIELDED         1
+#define _UPT_RETURN_EXITED          2
+#define _UPT_RETURN_ENDED           3
 
 #define _UPT_DELAY_STATE_READY     0
 #define _UPT_DELAY_STATE_RUNNING   1
@@ -68,11 +72,11 @@
 typedef struct UPT {
     uint16_t ix;
     uint8_t delayState;
-    uint32_t timeout;
+    _UPT_DELAY_COUNT_TYPE timeout;
 } UPT_Handler_t;
 
 typedef struct {
-    uint8_t count;
+    _UPT_SEMAPHORE_COUNT_TYPE count;
 } UPT_Semaphore_t;
 
 typedef struct {
@@ -80,7 +84,7 @@ typedef struct {
 } UPT_MessageBox_t;
 
 typedef struct {
-    volatile uint32_t flag;
+    volatile _UPT_FLAG_INDEX_TYPE flag;
 } UPT_EventFlag_t;
 
 /*@}*/
@@ -143,7 +147,7 @@ typedef struct {
 ////
 #define UPT_END() \
     _ISWITCH_END((upt)->ix); \
-    return _UPT_ENDED; \
+    return _UPT_RETURN_ENDED; \
 }
 
 /*@}*/
@@ -161,7 +165,7 @@ typedef struct {
 #define UPT_WAIT_UNTIL(condition) do { \
     _ISWITCH_SET(upt->ix); \
     if (!(condition)) { \
-        return _UPT_WAITING; \
+        return _UPT_RETURN_WAITING; \
     } \
 } while (0)
 
@@ -179,7 +183,7 @@ typedef struct {
     _ISWITCH_SET(upt->ix); \
     if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if (--upt->timeout > 0) { \
-            return _UPT_WAITING; \
+            return _UPT_RETURN_WAITING; \
         } else { \
             upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
@@ -188,7 +192,7 @@ typedef struct {
         if (_timeout != 0) { \
             upt->delayState = _UPT_DELAY_STATE_RUNNING; \
             upt->timeout = _timeout; \
-            return _UPT_WAITING; \
+            return _UPT_RETURN_WAITING; \
         } \
     } \
 } while (0)
@@ -235,7 +239,7 @@ typedef struct {
     _ISWITCH_INIT((&(gUPTHandler_##name))->ix); \
     (&(gUPTHandler_##name))->timeout = 0; \
     (&(gUPTHandler_##name))->delayState = _UPT_DELAY_STATE_READY; \
-    return _UPT_WAITING; \
+    return _UPT_RETURN_WAITING; \
 } while (0)
 
 
@@ -244,7 +248,7 @@ typedef struct {
 ////
 #define UPT_EXIT() do { \
     _ISWITCH_SET(upt->ix); \
-    return _UPT_EXITED; \
+    return _UPT_RETURN_EXITED; \
 } while (0)
 
 /*@}*/
@@ -263,7 +267,7 @@ typedef struct {
     while (x) delayOperate \
     
 #define UPT_SCHEDULE(name) \
-    ((_UPTThreadFunc_##name(&gUPTHandler_##name)) < _UPT_EXITED)
+    ((_UPTThreadFunc_##name(&gUPTHandler_##name)) < _UPT_RETURN_EXITED)
 
 /*@}*/
 
@@ -281,7 +285,7 @@ typedef struct {
     _uptYieldFlag = 0; \
     _ISWITCH_SET(upt->ix); \
     if (_uptYieldFlag == 0) { \
-        return _UPT_YIELDED; \
+        return _UPT_RETURN_YIELDED; \
     } \
 } while (0)
 
@@ -293,7 +297,7 @@ typedef struct {
     _uptYieldFlag = 0; \
     _ISWITCH_SET(upt->ix); \
     if ((_uptYieldFlag == 0) || !(cond)) {	\
-        return _UPT_YIELDED; \
+        return _UPT_RETURN_YIELDED; \
     } \
 } while (0)
 
@@ -321,7 +325,7 @@ typedef struct {
     _ISWITCH_SET(upt->ix); \
     if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if ((--upt->timeout > 0) && ((s)->count > 0)) { \
-            return _UPT_WAITING; \
+            return _UPT_RETURN_WAITING; \
         } else { \
             if (((s)->count == 0) { \
                 *result = 0; \
@@ -338,7 +342,7 @@ typedef struct {
             if (delay != 0) { \
                 upt->delayState = _UPT_DELAY_STATE_RUNNING; \
                 upt->timeout = delay; \
-                return _UPT_WAITING; \
+                return _UPT_RETURN_WAITING; \
             } \
         } \
     } \
@@ -387,7 +391,7 @@ typedef struct {
     _ISWITCH_SET(upt->ix); \
     if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if ((--upt->timeout > 0) && (((f)->flag & mark) == 0)) { \
-            return _UPT_WAITING; \
+            return _UPT_RETURN_WAITING; \
         } else { \
             if (((f)->flag & mark) != 0) { \
                 *result = (f)->flag & mark; \
@@ -410,7 +414,7 @@ typedef struct {
             if (delay != 0) { \
                 upt->delayState = _UPT_DELAY_STATE_RUNNING; \
                 upt->timeout = delay; \
-                return _UPT_WAITING; \
+                return _UPT_RETURN_WAITING; \
             } \
         } \
     } \
@@ -424,7 +428,7 @@ typedef struct {
     _ISWITCH_SET(upt->ix); \
     if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
         if ((--upt->timeout > 0) && (((f)->flag & mark) != mark)) { \
-            return _UPT_WAITING; \
+            return _UPT_RETURN_WAITING; \
         } else { \
             *result = 0; \
             if (((f)->flag & mark) == mark) { \
@@ -448,7 +452,7 @@ typedef struct {
             if (delay != 0) { \
                 upt->delayState = _UPT_DELAY_STATE_RUNNING; \
                 upt->timeout = delay; \
-                return _UPT_WAITING; \
+                return _UPT_RETURN_WAITING; \
             } \
         } \
     } \
