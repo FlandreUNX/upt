@@ -31,21 +31,12 @@
 /*@{*/
 
 #define _UPT_MAJOR_VERSION        "A"
-#define _UPT_SECONDARY_VERSION    "02"
+#define _UPT_SECONDARY_VERSION    "03"
 #define UPT_VERSION                _UPT_MAJOR_VERSION "." _UPT_SECONDARY_VERSION
 
 #define _UPT_DELAY_COUNT_TYPE         uint32_t
 #define _UPT_SEMAPHORE_COUNT_TYPE     uint8_t
 #define _UPT_FLAG_INDEX_TYPE          uint32_t
-
-#define _UPT_RETURN_WAITING         0
-#define _UPT_RETURN_YIELDED         1
-#define _UPT_RETURN_EXITED          2
-#define _UPT_RETURN_ENDED           3
-
-#define _UPT_DELAY_STATE_READY     0
-#define _UPT_DELAY_STATE_RUNNING   1
-
 
 #define _ISWITCH_INIT(s) \
     s = 0;
@@ -68,10 +59,25 @@
  */
  
 /*@{*/
+    
+typedef enum {
+    UPT_HANDLER_RETURN_WAITING,
+    UPT_HANDLER_RETURN_YIELDED,
+    UPT_HANDLER_RETURN_SUSPEND,
+    UPT_HANDLER_RETURN_EXITED,
+} UPT_HandlerReturn_t;
+    
+typedef enum {
+    UPT_HANDLER_STATE_NOINIT,
+    UPT_HANDLER_STATE_READY,
+    UPT_HANDLER_STATE_WAITING,
+    UPT_HANDLER_STATE_SUSPEND,
+    UPT_HANDLER_STATE_EXITED,
+} UPT_HandlerState_t;
 
 typedef struct UPT {
     uint16_t ix;
-    uint8_t delayState;
+    UPT_HandlerState_t state;
     _UPT_DELAY_COUNT_TYPE timeout;
 } UPT_Handler_t;
 
@@ -90,6 +96,30 @@ typedef struct {
 /*@}*/
 
 /**
+ * @addtogroup Protect IX functions
+ * @note none
+ */
+ 
+/*@{*/
+
+////
+//// Declare the start of a protothread inside the C function implementing the protothread
+////
+#define _UPT_BEGIN() { \
+    _ISWITCH_RESUME((upt)->ix)
+    
+    
+////
+//// Declare the end of a protothread
+////
+#define _UPT_END() \
+    _ISWITCH_END((upt)->ix); \
+    UPT_EXIT(); \
+}
+
+/*@}*/
+
+/**
  * @addtogroup Initialize functions
  * @note none
  */
@@ -101,59 +131,35 @@ typedef struct {
 ////
 #define UPT_EXTERN(name) \
     extern UPT_Handler_t gUPTHandler_##name; \
-    extern _UPTThreadFunc_##name(UPT_Handler_t *upt);
-
-////
-//// Initialize a protothread
-////
-#define UPT_INIT(name) do { \
-    extern UPT_Handler_t gUPTHandler_##name; \
-    _ISWITCH_INIT((&(gUPTHandler_##name))->ix); \
-    (&(gUPTHandler_##name))->timeout = 0; \
-    (&(gUPTHandler_##name))->delayState = _UPT_DELAY_STATE_READY; \
-} while (0)
+    extern UPT_HandlerReturn_t _UPTThreadFunc_##name(UPT_Handler_t *upt);
 
 
 ////
 //// Declaration and definition
 ////
 #define UPT_THREAD(name) \
-    UPT_Handler_t gUPTHandler_##name; \
-    int32_t _UPTThreadFunc_##name(UPT_Handler_t *upt)
+    UPT_Handler_t gUPTHandler_##name = { \
+        .state = UPT_HANDLER_STATE_NOINIT, \
+    }; \
+    UPT_HandlerReturn_t _UPTThreadFunc_##name(UPT_Handler_t *upt)
 
     
 #define UPT_THREAD_SAMPLE(name, onPoll, onSchedule, onExit) \
-    UPT_Handler_t gUPTHandler_##name; \
-    int32_t _UPTThreadFunc_##name(UPT_Handler_t *upt) { \
+    UPT_Handler_t gUPTHandler_##name = { \
+        .state = UPT_HANDLER_STATE_NOINIT, \
+    }; \
+    UPT_HandlerReturn_t _UPTThreadFunc_##name(UPT_Handler_t *upt) { \
         onPoll \
-        UPT_BEGIN(); \
+        _UPT_BEGIN(); \
         onSchedule \
         onExit \
-        UPT_EXIT(); \
-        UPT_END(); \
+        _UPT_END(); \
     }
-
-
-////
-//// Declare the start of a protothread inside the C function implementing the protothread
-////
-#define UPT_BEGIN() { \
-    uint8_t _uptYieldFlag = 1; \
-    _ISWITCH_RESUME((upt)->ix)
     
-    
-////
-//// Declare the end of a protothread
-////
-#define UPT_END() \
-    _ISWITCH_END((upt)->ix); \
-    return _UPT_RETURN_ENDED; \
-}
-
 /*@}*/
     
 /**
- * @addtogroup Block functions
+ * @addtogroup Local functions
  * @note none
  */
  
@@ -165,36 +171,58 @@ typedef struct {
 #define UPT_WAIT_UNTIL(condition) do { \
     _ISWITCH_SET(upt->ix); \
     if (!(condition)) { \
-        return _UPT_RETURN_WAITING; \
+        return UPT_HANDLER_RETURN_WAITING; \
     } \
 } while (0)
 
-
-////
-//// Block and wait while condition is true.
-////
-#define UPT_WAIT_WHILE(cond) \
-    UPT_WAIT_UNTIL(!(cond))
 
 ////
 //// Lock and wait timeout
 ////
 #define UPT_DELAY(_timeout) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
+    if (upt->state == UPT_HANDLER_STATE_WAITING) { \
         if (--upt->timeout > 0) { \
-            return _UPT_RETURN_WAITING; \
+            return UPT_HANDLER_RETURN_WAITING; \
         } else { \
-            upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
+            upt->state = UPT_HANDLER_STATE_READY; \
         } \
     } else { \
         if (_timeout != 0) { \
-            upt->delayState = _UPT_DELAY_STATE_RUNNING; \
             upt->timeout = _timeout; \
-            return _UPT_RETURN_WAITING; \
+            upt->state = UPT_HANDLER_STATE_WAITING; \
+            return UPT_HANDLER_RETURN_WAITING; \
         } \
     } \
+} while (0)
+
+
+//// 
+//// Yield from the current protothread.
+////
+#define UPT_YIELD() do { \
+    _ISWITCH_SET(upt->ix); \
+    return UPT_HANDLER_RETURN_YIELDED; \
+} while (0)
+
+
+//// 
+//// Suspend from the current protothread.
+////
+#define UPT_SUSPEND() do { \
+    _ISWITCH_SET(upt->ix); \
+    upt->state = UPT_HANDLER_STATE_SUSPEND; \
+    return UPT_HANDLER_RETURN_SUSPEND; \
+} while (0)
+
+
+////
+//// Exit the protothread.
+////
+#define UPT_EXIT() do { \
+    upt->state = UPT_HANDLER_STATE_EXITED; \
+    return UPT_HANDLER_RETURN_EXITED; \
 } while (0)
 
 /*@}*/
@@ -207,48 +235,39 @@ typedef struct {
 /*@{*/
 
 ////
-//// Block and wait until a child protothread completes.
+//// Start a protothread
 ////
-#define UPT_WAIT_THREAD(thread) \
-    UPT_WAIT_WHILE(UPT_SCHEDULE(thread))
-
-
-////
-//// Spawn a child protothread and wait until it exits.
-////
-#define UPT_SPAWN(nameChild, thread) do { \
-    extern UPT_Handler_t gUPTHandler_##nameChild; \
-    _ISWITCH_INIT(gUPTHandler_##nameChild.ix); \
-    UPT_WAIT_THREAD((thread)); \
+#define UPT_START(threadName) do { \
+    extern UPT_Handler_t gUPTHandler_##threadName; \
+    if (gUPTHandler_##threadName.state == UPT_HANDLER_STATE_NOINIT) { \
+        _ISWITCH_INIT((&(gUPTHandler_##threadName))->ix); \
+        gUPTHandler_##threadName.timeout = 0; \
+        gUPTHandler_##threadName.state = UPT_HANDLER_STATE_READY; \
+    } \
 } while (0)
 
-/*@}*/
-
-/**
- * @addtogroup Exiting and restarting functions
- * @note none
- */
- 
-/*@{*/
 
 ////
 //// Restart the protothread.
 ////
-#define UPT_RESTART(name) do { \
-    extern UPT_Handler_t gUPTHandler_##name; \
-    _ISWITCH_INIT((&(gUPTHandler_##name))->ix); \
-    (&(gUPTHandler_##name))->timeout = 0; \
-    (&(gUPTHandler_##name))->delayState = _UPT_DELAY_STATE_READY; \
-    return _UPT_RETURN_WAITING; \
+#define UPT_RESTART(threadName) do { \
+    extern UPT_Handler_t gUPTHandler_##threadName; \
+    if (gUPTHandler_##threadName.state == UPT_HANDLER_STATE_EXITED) { \
+        _ISWITCH_INIT((&(gUPTHandler_##threadName))->ix); \
+        gUPTHandler_##threadName.timeout = 0; \
+        gUPTHandler_##threadName.state = UPT_HANDLER_STATE_READY; \
+    } \
 } while (0)
 
 
 ////
-//// Exit the protothread.
+//// Resume the protothread.
 ////
-#define UPT_EXIT() do { \
-    _ISWITCH_SET(upt->ix); \
-    return _UPT_RETURN_EXITED; \
+#define UPT_RESUME(threadName) do { \
+    extern UPT_Handler_t gUPTHandler_##threadName; \
+    if (gUPTHandler_##threadName.state == UPT_HANDLER_STATE_SUSPEND) { \
+        gUPTHandler_##threadName.state = UPT_HANDLER_STATE_READY; \
+    } \
 } while (0)
 
 /*@}*/
@@ -266,40 +285,11 @@ typedef struct {
 #define UPT_POLL(x, delayOperate) \
     while (x) delayOperate \
     
-#define UPT_SCHEDULE(name) \
-    ((_UPTThreadFunc_##name(&gUPTHandler_##name)) < _UPT_RETURN_EXITED)
-
-/*@}*/
-
-/**
- * @addtogroup Yielding from a protothread functions
- * @note none
- */
- 
-/*@{*/
-
-//// 
-//// Yield from the current protothread.
-////
-#define UPT_YIELD() do { \
-    _uptYieldFlag = 0; \
-    _ISWITCH_SET(upt->ix); \
-    if (_uptYieldFlag == 0) { \
-        return _UPT_RETURN_YIELDED; \
-    } \
-} while (0)
-
-
-//// 
-//// Yield from the protothread until a condition occurs.
-////
-#define UPT_YIELD_UNTIL(cond) do { \
-    _uptYieldFlag = 0; \
-    _ISWITCH_SET(upt->ix); \
-    if ((_uptYieldFlag == 0) || !(cond)) {	\
-        return _UPT_RETURN_YIELDED; \
-    } \
-} while (0)
+#define UPT_SCHEDULE(threadName) \
+    ((gUPTHandler_##threadName.state <= UPT_HANDLER_STATE_WAITING \
+            ? _UPTThreadFunc_##threadName(&gUPTHandler_##threadName) \
+            : UPT_HANDLER_RETURN_EXITED) \
+        != UPT_HANDLER_RETURN_EXITED)
 
 /*@}*/
 
@@ -323,7 +313,7 @@ typedef struct {
 ////
 #define UPT_SEM_WAIT(s, delay, result) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
+    if (upt->state == _UPT_DELAY_STATE_RUNNING) { \
         if ((--upt->timeout > 0) && ((s)->count > 0)) { \
             return _UPT_RETURN_WAITING; \
         } else { \
@@ -332,7 +322,7 @@ typedef struct {
             } else if (upt->timeout <= 0) { \
                 *result = -1; \
             } \
-            upt->delayState = _UPT_DELAY_STATE_READY; \
+            upt->state = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
         } \
     } else { \
@@ -340,7 +330,7 @@ typedef struct {
             *result = 0; \
         } else { \
             if (delay != 0) { \
-                upt->delayState = _UPT_DELAY_STATE_RUNNING; \
+                upt->state = _UPT_DELAY_STATE_RUNNING; \
                 upt->timeout = delay; \
                 return _UPT_RETURN_WAITING; \
             } \
@@ -387,11 +377,11 @@ typedef struct {
 ////
 //// Wait for a flag with any
 ////
-#define UPT_FLAG_WAIT_ANY(f, mark, noClear, delay, result) do { \
+#define UPT_FLAG_WAIT_ANY(f, mark, noClear, _timeout, result) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
+    if (upt->state == UPT_HANDLER_STATE_WAITING) { \
         if ((--upt->timeout > 0) && (((f)->flag & mark) == 0)) { \
-            return _UPT_RETURN_WAITING; \
+            return UPT_HANDLER_RETURN_WAITING; \
         } else { \
             if (((f)->flag & mark) != 0) { \
                 *result = (f)->flag & mark; \
@@ -401,8 +391,8 @@ typedef struct {
             } else if (upt->timeout <= 0) { \
                 *result = -1; \
             } \
-            upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
+            upt->state = UPT_HANDLER_STATE_READY; \
         } \
     } else { \
         if (((f)->flag & mark) != 0) { \
@@ -411,10 +401,10 @@ typedef struct {
                 UPT_FLAG_CLEAR(f, mark); \
             } \
         } else { \
-            if (delay != 0) { \
-                upt->delayState = _UPT_DELAY_STATE_RUNNING; \
-                upt->timeout = delay; \
-                return _UPT_RETURN_WAITING; \
+            if (_timeout != 0) { \
+                upt->timeout = _timeout; \
+                upt->state = UPT_HANDLER_STATE_WAITING; \
+                return UPT_HANDLER_RETURN_WAITING; \
             } \
         } \
     } \
@@ -424,11 +414,11 @@ typedef struct {
 ////
 //// Wait for a flag with all
 ////
-#define UPT_FLAG_WAIT_ALL(f, mark, noClear, delay, result) do { \
+#define UPT_FLAG_WAIT_ALL(f, mark, noClear, _timeout, result) do { \
     _ISWITCH_SET(upt->ix); \
-    if (upt->delayState == _UPT_DELAY_STATE_RUNNING) { \
+    if (upt->state == UPT_HANDLER_STATE_WAITING) { \
         if ((--upt->timeout > 0) && (((f)->flag & mark) != mark)) { \
-            return _UPT_RETURN_WAITING; \
+            return UPT_HANDLER_RETURN_WAITING; \
         } else { \
             *result = 0; \
             if (((f)->flag & mark) == mark) { \
@@ -439,8 +429,8 @@ typedef struct {
             } else if (upt->timeout <= 0) { \
                 *result = -1; \
             } \
-            upt->delayState = _UPT_DELAY_STATE_READY; \
             upt->timeout = 0; \
+            upt->state = UPT_HANDLER_STATE_READY; \
         } \
     } else { \
         if (((f)->flag & mark) == mark) { \
@@ -449,10 +439,10 @@ typedef struct {
                 UPT_FLAG_CLEAR(f, mark); \
             } \
         } else { \
-            if (delay != 0) { \
-                upt->delayState = _UPT_DELAY_STATE_RUNNING; \
-                upt->timeout = delay; \
-                return _UPT_RETURN_WAITING; \
+            if (_timeout != 0) { \
+                upt->timeout = _timeout; \
+                upt->state = UPT_HANDLER_STATE_WAITING; \
+                return UPT_HANDLER_RETURN_WAITING; \
             } \
         } \
     } \
