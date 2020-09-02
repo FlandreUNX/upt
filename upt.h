@@ -31,13 +31,31 @@
 /*@{*/
 
 #define _UPT_MAJOR_VERSION        "A"
-#define _UPT_SECONDARY_VERSION    "03"
+#define _UPT_SECONDARY_VERSION    "04"
 #define UPT_VERSION                _UPT_MAJOR_VERSION "." _UPT_SECONDARY_VERSION
 
+#define _UPT_SWITCH_LC                 1
 #define _UPT_DELAY_COUNT_TYPE         uint32_t
 #define _UPT_SEMAPHORE_COUNT_TYPE     uint8_t
 #define _UPT_FLAG_INDEX_TYPE          uint32_t
 
+#if _UPT_SWITCH_LC == 1
+#define _ISWITCH_INIT(s) \
+    s = NULL
+    
+#define _ISWITCH_RESUME(s) do { \
+    if (s != NULL) { \
+        goto *s; \
+    } \
+} while (0)
+      
+#define _ISWITCH_SET(s) do { \
+    ({ __label__ resume; resume: (s) = &&resume; }); \
+} while (0)
+
+#define _ISWITCH_END(s) 
+
+#else
 #define _ISWITCH_INIT(s) \
     s = 0;
     
@@ -50,6 +68,7 @@
 
 #define _ISWITCH_END(s) \
     }
+#endif
 
 /*@}*/
 
@@ -76,7 +95,11 @@ typedef enum {
 } UPT_HandlerState_t;
 
 typedef struct UPT {
+#if _UPT_SWITCH_LC == 0
     uint16_t ix;
+#else
+    void *ix;
+#endif
     UPT_HandlerState_t state;
     _UPT_DELAY_COUNT_TYPE timeout;
 } UPT_Handler_t;
@@ -106,14 +129,14 @@ typedef struct {
 //// Declare the start of a protothread inside the C function implementing the protothread
 ////
 #define _UPT_BEGIN() { \
-    _ISWITCH_RESUME((upt)->ix)
+    _ISWITCH_RESUME(((upt)->ix))
     
     
 ////
 //// Declare the end of a protothread
 ////
 #define _UPT_END() \
-    _ISWITCH_END((upt)->ix); \
+    _ISWITCH_END(((upt)->ix)); \
     UPT_EXIT(); \
 }
 
@@ -144,12 +167,11 @@ typedef struct {
     UPT_HandlerReturn_t _UPTThreadFunc_##name(UPT_Handler_t *upt)
 
     
-#define UPT_THREAD_SAMPLE(name, onPoll, onSchedule, onExit) \
+#define UPT_THREAD_SAMPLE(name, onSchedule, onExit) \
     UPT_Handler_t gUPTHandler_##name = { \
         .state = UPT_HANDLER_STATE_NOINIT, \
     }; \
     UPT_HandlerReturn_t _UPTThreadFunc_##name(UPT_Handler_t *upt) { \
-        onPoll \
         _UPT_BEGIN(); \
         onSchedule \
         onExit \
@@ -221,6 +243,7 @@ typedef struct {
 //// Exit the protothread.
 ////
 #define UPT_EXIT() do { \
+    _ISWITCH_SET(upt->ix); \
     upt->state = UPT_HANDLER_STATE_EXITED; \
     return UPT_HANDLER_RETURN_EXITED; \
 } while (0)

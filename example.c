@@ -16,7 +16,7 @@
 
 #include "global.h"
 
-#include "./upt.h"
+
 
 /**
  * @addtogroup Static func
@@ -25,44 +25,32 @@
  
 /*@{*/
 
+#include "./upt.h"
+
 UPT_EventFlag_t flag;
 
 UPT_THREAD_SAMPLE(testThread0, {
-}, {
     UPT_FLAG_INIT(&flag);
 
-    LOG_I("THREAD-1-BEGIN");
+    LOG_I("THREAD-0-BEGIN");
     
     for (;;) {
         UPT_DELAY(1000);
-        LOG_I("THREAD-1");
+        LOG_I("THREAD-0");
     }
-}, {
-});
-
-
-UPT_THREAD_SAMPLE(testThreadSem, {
-}, {
-        LOG_I("THREAD-2");
 }, {
 });
 
 
 UPT_THREAD_SAMPLE(testThread1, {
-    // Poll
+    UPT_DELAY(1);
+    LOG_I("THREAD-1");
 }, {
-    // onSchedule
-    
-    for (;;) {
-    }
-}, {
-    // onExit
 });
 
 
 uint32_t mk = 0x00000001u;
 UPT_THREAD_SAMPLE(testThread2, {
-}, {
     int32_t flagResult = 0;
     
     UPT_FLAG_WAIT_ANY(&flag, 0x00000001u, 1, 2000, &flagResult);
@@ -88,13 +76,10 @@ static void threadInit(void *arg) {
     UPT_START(testThread0);
     UPT_START(testThread1);
     UPT_START(testThread2);
-    UPT_START(testThreadSem);
     UPT_POLL(
         UPT_SCHEDULE(testThread0)
         | UPT_SCHEDULE(testThread1)
-        | UPT_SCHEDULE(testThread2)
-        | UPT_SCHEDULE(testThreadSem), 
-        {
+        | UPT_SCHEDULE(testThread2), {
             osDelay(1);
         });
 }
